@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import Thread from "@/lib/models/thread.model";
 import User from "@/lib/models/user.model";
+import Community from "../models/community.model";
 import { connectToDB } from "@/lib/mongoose";
 
 interface Params {
@@ -22,16 +23,28 @@ export async function createThread({
   try {
     connectToDB();
 
+    const communityIdObject = await Community.findOne(
+      { id: communityId },
+      { _id: 1 }
+    );
+
     const createdThread = await Thread.create({
       text,
       author,
-      community: null,
+      community: communityIdObject, // Assign communityId if provided, or leave it null for personal account
     });
 
     // Update User model
     await User.findByIdAndUpdate(author, {
       $push: { threads: createdThread._id },
     });
+
+    if (communityIdObject) {
+      // Update Community model
+      await Community.findByIdAndUpdate(communityIdObject, {
+        $push: { threads: createdThread._id },
+      });
+    }
 
     revalidatePath(path);
   } catch (error: any) {
@@ -53,6 +66,10 @@ export async function fetchPosts(pageNumber = 1, pageSize = 20) {
     .populate({
       path: "author",
       model: User,
+    })
+    .populate({
+      path: "community",
+      model: Community,
     })
     .populate({
       path: "children", // Populate the children field
@@ -85,6 +102,11 @@ export async function fetchThreadById(threadId: string) {
         model: User,
         select: "_id id name image",
       }) // Populate the author field with _id and username
+      .populate({
+        path: "community",
+        model: Community,
+        select: "_id id name image",
+      }) // Populate the community field with _id and name
       .populate({
         path: "children", // Populate the children field
         populate: [
